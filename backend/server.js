@@ -100,7 +100,64 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
   }
 });
 
-// ── 4. SERVE FRONTEND (FIXED FOR EXPRESS v5) ───
+
+// ── 4. RELATED SOURCES (🔥 NEW FEATURE) ─────────
+app.get("/sources", async (req, res) => {
+  try {
+    const query = req.query.q;
+
+    // Clean keyword
+    const keyword = query
+      .replace(/[^a-zA-Z ]/g, "")
+      .split(" ")
+      .slice(0, 3)
+      .join(" ");
+
+    // Wikipedia
+    const wikiRes = await fetch(
+      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(keyword)}`
+    );
+    const wikiData = await wikiRes.json();
+
+    // NewsAPI (using your key for now)
+    const newsRes = await fetch(
+      `https://newsapi.org/v2/everything?q=${encodeURIComponent(keyword)}&pageSize=3&sortBy=relevancy&apiKey=bc129e593ccd469c9256e1b0e5f9339d`
+    );
+    const newsData = await newsRes.json();
+
+    const results = [];
+
+    // Add Wikipedia
+    if (wikiData.title && wikiData.extract) {
+      results.push({
+        type: "Wikipedia",
+        title: wikiData.title,
+        snippet: wikiData.extract.slice(0, 120) + "...",
+        url: wikiData.content_urls?.desktop?.page || "#"
+      });
+    }
+
+    // Add News
+    if (newsData.articles) {
+      newsData.articles.forEach(article => {
+        results.push({
+          type: "News",
+          title: article.title,
+          snippet: article.source?.name,
+          url: article.url
+        });
+      });
+    }
+
+    res.json(results.slice(0, 5));
+
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch sources" });
+  }
+});
+
+
+// ── 5. SERVE FRONTEND ──────────────────────────
 app.use(express.static(path.join(__dirname, "../frontend/dist")));
 
 app.use((req, res) => {

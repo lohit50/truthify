@@ -41,48 +41,22 @@ function App() {
     };
   };
 
-  const fetchSources = async (query) => {
-    setSourcesLoading(true);
-    setSources(null);
-    const keyword = query.split(' ').slice(0, 3).join(' ');
+ const fetchSources = async (query) => {
+  setSourcesLoading(true);
+  setSources(null);
 
-    try {
-      const [wikiRes, newsRes] = await Promise.all([
-        fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(keyword)}`),
-        fetch(`https://newsapi.org/v2/everything?q=${encodeURIComponent(keyword)}&pageSize=3&sortBy=relevancy&apiKey=bc129e593ccd469c9256e1b0e5f9339d`)
-      ]);
+  try {
+    const res = await fetch(`/sources?q=${encodeURIComponent(query)}`);
+    const data = await res.json();
 
-      const wikiData = await wikiRes.json();
-      const newsData = await newsRes.json();
+    setSources(data);
+  } catch (err) {
+    console.error("Sources error:", err);
+    setSources([]);
+  }
 
-      const results = [];
-
-      if (wikiData.title && wikiData.extract) {
-        results.push({
-          type: 'Wikipedia',
-          title: wikiData.title,
-          snippet: wikiData.extract.slice(0, 120) + '...',
-          url: wikiData.content_urls?.desktop?.page || '#'
-        });
-      }
-
-      if (newsData.articles) {
-        newsData.articles.slice(0, 3).forEach(article => {
-          results.push({
-            type: 'NewsAPI',
-            title: article.title,
-            snippet: article.source?.name + ' · ' + new Date(article.publishedAt).toLocaleString(),
-            url: article.url
-          });
-        });
-      }
-
-      setSources(results.slice(0, 4));
-    } catch (err) {
-      setSources([]);
-    }
-    setSourcesLoading(false);
-  };
+  setSourcesLoading(false);
+};
 
   const handleTextAnalysis = async () => {
     if (!textInput.trim()) return;
