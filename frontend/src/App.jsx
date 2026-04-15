@@ -15,7 +15,7 @@ function App() {
   const parseGeminiResponse = (text) => {
     const verdictMatch = text.match(/Verdict:\s*(Real|Fake|Suspicious)/i);
     const confidenceMatch = text.match(/Confidence:\s*(\d+)/i);
-    const reasonMatch = text.match(/Reason:\s*([\s\S]*)/i);
+    const reasonMatch = text.match(/Reason:\s*([\s\S]*?)(?=\nKeyword:|$)/i);
 
     const verdictRaw = verdictMatch?.[1]?.toLowerCase() || 'suspicious';
     const verdict =
@@ -41,22 +41,21 @@ function App() {
     };
   };
 
- const fetchSources = async (query) => {
-  setSourcesLoading(true);
-  setSources(null);
+  const fetchSources = async (query) => {
+    setSourcesLoading(true);
+    setSources(null);
 
-  try {
-    const res = await fetch(`/sources?q=${encodeURIComponent(query)}`);
-    const data = await res.json();
+    try {
+      const res = await fetch(`/sources?q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      setSources(data);
+    } catch (err) {
+      console.error("Sources error:", err);
+      setSources([]);
+    }
 
-    setSources(data);
-  } catch (err) {
-    console.error("Sources error:", err);
-    setSources([]);
-  }
-
-  setSourcesLoading(false);
-};
+    setSourcesLoading(false);
+  };
 
   const handleTextAnalysis = async () => {
     if (!textInput.trim()) return;
@@ -78,7 +77,8 @@ function App() {
       }
 
       setResult(parseGeminiResponse(data.result));
-      fetchSources(textInput);
+      // ✅ Use Gemini-extracted keyword, fallback to raw input if missing
+      fetchSources(data.keyword || textInput);
     } catch (err) {
       console.error('Text analysis error:', err);
       setResult({
@@ -111,7 +111,8 @@ function App() {
       });
       const data = await res.json();
       setResult(parseGeminiResponse(data.result));
-      fetchSources('fake news misinformation');
+      // ✅ Use Gemini-extracted keyword, fallback to generic if missing
+      fetchSources(data.keyword || 'misinformation fact check');
     } catch (err) {
       console.error('Image analysis error:', err);
       setResult({

@@ -12,7 +12,6 @@ dotenv.config();
 const app = express();
 const upload = multer({ dest: "uploads/" });
 
-// Fix __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -49,7 +48,8 @@ app.post("/analyze", async (req, res) => {
               Respond exactly as:
               Verdict: Real/Fake/Suspicious
               Confidence: [0-100]%
-              Reason: [explanation]`
+              Reason: [explanation]
+              Keyword: [single most relevant search keyword or short phrase (2-3 words max) representing the core subject of the claim, suitable for a news search]`
             }]
           }]
         }),
@@ -59,7 +59,14 @@ app.post("/analyze", async (req, res) => {
     const data = await response.json();
     const output = data.candidates?.[0]?.content?.parts?.[0]?.text || null;
 
-    res.json({ result: output });
+    // Extract keyword from Gemini's response
+    let keyword = null;
+    if (output) {
+      const keywordMatch = output.match(/Keyword:\s*(.+)/i);
+      keyword = keywordMatch ? keywordMatch[1].trim() : null;
+    }
+
+    res.json({ result: output, keyword });
   } catch (err) {
     res.status(500).json({ error: "Server failed" });
   }
@@ -81,7 +88,13 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
           contents: [{
             parts: [
               { inline_data: { mime_type: req.file.mimetype, data: base64Image } },
-              { text: "Analyze this image for fake news. Respond with Verdict, Confidence, and Reason." }
+              {
+                text: `Analyze this image for fake news. Respond exactly as:
+                Verdict: Real/Fake/Suspicious
+                Confidence: [0-100]%
+                Reason: [explanation]
+                Keyword: [single most relevant search keyword or short phrase (2-3 words max) representing the core subject, suitable for a news search]`
+              }
             ]
           }]
         }),
@@ -92,7 +105,15 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
     fs.unlinkSync(req.file.path);
 
     const output = data.candidates?.[0]?.content?.parts?.[0]?.text || null;
-    res.json({ result: output });
+
+    // Extract keyword from Gemini's response
+    let keyword = null;
+    if (output) {
+      const keywordMatch = output.match(/Keyword:\s*(.+)/i);
+      keyword = keywordMatch ? keywordMatch[1].trim() : null;
+    }
+
+    res.json({ result: output, keyword });
 
   } catch (err) {
     if (req.file) fs.unlinkSync(req.file.path);
@@ -101,17 +122,17 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
 });
 
 
-// ── 4. RELATED SOURCES (🔥 NEW FEATURE) ─────────
+// ── 4. RELATED SOURCES ────────────────────────
 app.get("/sources", async (req, res) => {
   try {
     const query = req.query.q;
 
-    // Clean keyword
-    const keyword = query
-      .replace(/[^a-zA-Z ]/g, "")
-      .split(" ")
-      .slice(0, 3)
-      .join(" ");
+    if (!query || query.trim() === "") {
+      return res.status(400).json({ error: "No query provided" });
+    }
+
+    // Use the keyword directly as provided by Gemini (no slicing/mangling)
+    const keyword = query.trim();
 
     // Wikipedia
     const wikiRes = await fetch(
@@ -119,7 +140,7 @@ app.get("/sources", async (req, res) => {
     );
     const wikiData = await wikiRes.json();
 
-    // NewsAPI (using your key for now)
+    // NewsAPI
     const newsRes = await fetch(
       `https://newsapi.org/v2/everything?q=${encodeURIComponent(keyword)}&pageSize=3&sortBy=relevancy&apiKey=bc129e593ccd469c9256e1b0e5f9339d`
     );
