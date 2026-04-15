@@ -9,8 +9,9 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState(null);
   const [dragActive, setDragActive] = useState(false);
+  const [sources, setSources] = useState(null);
+  const [sourcesLoading, setSourcesLoading] = useState(false);
 
-  // Parse Gemini's plain text response into structured result
   const parseGeminiResponse = (text) => {
     const verdictMatch = text.match(/Verdict:\s*(Real|Fake|Suspicious)/i);
     const confidenceMatch = text.match(/Confidence:\s*(\d+)/i);
@@ -40,45 +41,84 @@ function App() {
     };
   };
 
+  const fetchSources = async (query) => {
+    setSourcesLoading(true);
+    setSources(null);
+    const keyword = query.split(' ').slice(0, 3).join(' ');
+
+    try {
+      const [wikiRes, newsRes] = await Promise.all([
+        fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(keyword)}`),
+        fetch(`https://newsapi.org/v2/everything?q=${encodeURIComponent(keyword)}&pageSize=3&sortBy=relevancy&apiKey=bc129e593ccd469c9256e1b0e5f9339d`)
+      ]);
+
+      const wikiData = await wikiRes.json();
+      const newsData = await newsRes.json();
+
+      const results = [];
+
+      if (wikiData.title && wikiData.extract) {
+        results.push({
+          type: 'Wikipedia',
+          title: wikiData.title,
+          snippet: wikiData.extract.slice(0, 120) + '...',
+          url: wikiData.content_urls?.desktop?.page || '#'
+        });
+      }
+
+      if (newsData.articles) {
+        newsData.articles.slice(0, 3).forEach(article => {
+          results.push({
+            type: 'NewsAPI',
+            title: article.title,
+            snippet: article.source?.name + ' · ' + new Date(article.publishedAt).toLocaleString(),
+            url: article.url
+          });
+        });
+      }
+
+      setSources(results.slice(0, 4));
+    } catch (err) {
+      setSources([]);
+    }
+    setSourcesLoading(false);
+  };
+
   const handleTextAnalysis = async () => {
     if (!textInput.trim()) return;
     setIsAnalyzing(true);
     setResult(null);
 
-   try {
-  const res = await fetch('/analyze', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: textInput }),
-  });
+    try {
+      const res = await fetch('/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: textInput }),
+      });
 
-  const data = await res.json();
+      const data = await res.json();
+      console.log("Backend response:", data);
 
-  // ✅ PRINT FULL RESPONSE (THIS IS WHAT YOU WANT)
-  console.log("Backend response:", data);
+      if (!res.ok || !data.result) {
+        throw new Error(data.error || "Invalid response from backend");
+      }
 
-  // ✅ HANDLE ERROR SAFELY
-  if (!res.ok || !data.result) {
-    throw new Error(data.error || "Invalid response from backend");
-  }
-
-  setResult(parseGeminiResponse(data.result));
-
-} catch (err) {
-  console.error('Text analysis error:', err);
-
-  setResult({
-    verdict: 'suspicious',
-    confidence: '0',
-    analysis: {
-      aiGenerated: false,
-      aiConfidence: '0',
-      credibilityScore: '0',
-      factCheck: err.message || 'Backend error',
-      indicators: [],
-    },
-  });
-}
+      setResult(parseGeminiResponse(data.result));
+      fetchSources(textInput);
+    } catch (err) {
+      console.error('Text analysis error:', err);
+      setResult({
+        verdict: 'suspicious',
+        confidence: '0',
+        analysis: {
+          aiGenerated: false,
+          aiConfidence: '0',
+          credibilityScore: '0',
+          factCheck: err.message || 'Backend error',
+          indicators: [],
+        },
+      });
+    }
     setIsAnalyzing(false);
   };
 
@@ -97,6 +137,7 @@ function App() {
       });
       const data = await res.json();
       setResult(parseGeminiResponse(data.result));
+      fetchSources('fake news misinformation');
     } catch (err) {
       console.error('Image analysis error:', err);
       setResult({
@@ -152,6 +193,7 @@ function App() {
     setImageFile(null);
     setImagePreview(null);
     setResult(null);
+    setSources(null);
   };
 
   return (
@@ -370,6 +412,32 @@ function App() {
               </button>
             </div>
           )}
+
+          {(sourcesLoading || sources) && (
+            <div className="sources-section">
+              <h4 className="sources-title">Related Sources</h4>
+              {sourcesLoading && (
+                <div className="sources-loading">
+                  <span className="spinner"></span> Fetching sources...
+                </div>
+              )}
+              {sources && sources.length === 0 && (
+                <p className="sources-empty">No sources found.</p>
+              )}
+              {sources && sources.map((src, i) => (
+                <a key={i} href={src.url} target="_blank" rel="noreferrer" className="source-card">
+                  <span className={`source-badge ${src.type === 'Wikipedia' ? 'badge-wiki' : 'badge-news'}`}>
+                    {src.type}
+                  </span>
+                  <div className="source-body">
+                    <p className="source-title">{src.title}</p>
+                    <p className="source-snippet">{src.snippet}</p>
+                  </div>
+                </a>
+              ))}
+            </div>
+          )}
+
         </div>
 
         <div className="features-section">
