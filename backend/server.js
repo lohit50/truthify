@@ -12,7 +12,7 @@ dotenv.config();
 const app = express();
 const upload = multer({ dest: "uploads/" });
 
-// Fix for __dirname in ES modules
+// Fix __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -100,10 +100,10 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
   }
 });
 
-// ── 4. SERVE FRONTEND (VERY IMPORTANT) ─────────
+// ── 4. SERVE FRONTEND (FIXED FOR EXPRESS v5) ───
 app.use(express.static(path.join(__dirname, "../frontend/dist")));
 
-app.get("/*", (req, res) => {
+app.use((req, res) => {
   res.sendFile(path.join(__dirname, "../frontend/dist/index.html"));
 });
 
