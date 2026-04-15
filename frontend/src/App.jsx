@@ -46,7 +46,7 @@ function App() {
     setResult(null);
 
    try {
-  const res = await fetch('http://localhost:5000/analyze', {
+  const res = await fetch('/analyze', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text: textInput }),
@@ -91,7 +91,7 @@ function App() {
       const formData = new FormData();
       formData.append('image', imageFile);
 
-      const res = await fetch('http://localhost:5000/analyze-image', {
+      const res = await fetch('/analyze-image', {
         method: 'POST',
         body: formData,
       });
