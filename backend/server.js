@@ -6,17 +6,60 @@ import fs from "fs";
 import fetch from "node-fetch";
 import path from "path";
 import { fileURLToPath } from "url";
+import rateLimit from "express-rate-limit";
 
 dotenv.config();
 
 const app = express();
-const upload = multer({ dest: "uploads/" });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// ── RATE LIMITERS ──────────────────────────────
+// General: 100 requests per 15 min per IP
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later." },
+});
+
+// Analyze endpoints: 10 requests per 15 min per IP (Gemini API is expensive)
+const analyzeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many analysis requests, please slow down." },
+});
+
+// Sources: 30 requests per 15 min per IP
+const sourcesLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many source requests, please slow down." },
+});
+
+// ── FILE UPLOAD CONFIG ─────────────────────────
+const imageFilter = (req, file, cb) => {
+  if (!file.mimetype.startsWith("image/")) {
+    return cb(new Error("Only image files are allowed."), false);
+  }
+  cb(null, true);
+};
+
+const upload = multer({
+  dest: "uploads/",
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB max
+  fileFilter: imageFilter,
+});
+
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "50kb" }));
+app.use(generalLimiter);
 
 // ── 1. DEBUG ROUTE ─────────────────────────────
 app.get("/list-models", async (req, res) => {
@@ -32,7 +75,7 @@ app.get("/list-models", async (req, res) => {
 });
 
 // ── 2. TEXT ANALYSIS ───────────────────────────
-app.post("/analyze", async (req, res) => {
+app.post("/analyze", analyzeLimiter, async (req, res) => {
   const { text } = req.body;
 
   try {
@@ -73,7 +116,7 @@ app.post("/analyze", async (req, res) => {
 });
 
 // ── 3. IMAGE ANALYSIS ──────────────────────────
-app.post("/analyze-image", upload.single("image"), async (req, res) => {
+app.post("/analyze-image", analyzeLimiter, upload.single("image"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No image" });
 
   try {
@@ -123,7 +166,7 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
 
 
 // ── 4. RELATED SOURCES ────────────────────────
-app.get("/sources", async (req, res) => {
+app.get("/sources", sourcesLimiter, async (req, res) => {
   try {
     const query = req.query.q;
 
@@ -177,6 +220,17 @@ app.get("/sources", async (req, res) => {
   }
 });
 
+
+// ── MULTER ERROR HANDLER ───────────────────────
+app.use((err, req, res, next) => {
+  if (err.code === "LIMIT_FILE_SIZE") {
+    return res.status(413).json({ error: "File too large. Max 5 MB." });
+  }
+  if (err.message === "Only image files are allowed.") {
+    return res.status(415).json({ error: err.message });
+  }
+  next(err);
+});
 
 // ── 5. SERVE FRONTEND ──────────────────────────
 app.use(express.static(path.join(__dirname, "../frontend/dist")));
